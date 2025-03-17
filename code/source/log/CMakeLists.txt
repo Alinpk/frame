@@ -1,0 +1,1 @@
+build_prj_lib_with_pub()

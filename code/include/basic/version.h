@@ -1,3 +1,7 @@
+/*
+    frame version which can be check in compile time
+*/
+
 #pragma once
 
 #include <cstdint>
@@ -13,9 +17,7 @@ namespace XH {
 
 struct version
 {
-    constexpr version(const std::uint64_t major_, const std::uint64_t minor_, const std::uint64_t patch_) noexcept
-        : major(major_), minor(minor_), patch(patch_)
-        {}
+    constexpr version(const std::uint64_t major_, const std::uint64_t minor_, const std::uint64_t patch_) noexcept : major(major_), minor(minor_), patch(patch_) {}
 
     [[nodiscard]] constexpr friend bool operator==(const version& lhs, const version& rhs) noexcept
     {
@@ -52,7 +54,7 @@ struct version
         return std::to_string(major) + '.' + std::to_string(minor) + '.' + std::to_string(patch);
     }
 
-    [[nodiscard]] constexpr friend std::ostream& operator<<(std::ostream& os, const version& v) noexcept
+    [[nodiscard]] friend std::ostream& operator<<(std::ostream& os, const version& v) noexcept
     {
         return os << v.major << '.' << v.minor << '.' << v.patch;
     }
@@ -62,6 +64,5 @@ struct version
     std::uint64_t patch;
 };
 
-
-inline constexpr version current_version = { XH_VERSION_MAJOR, XH_VERSION_MINOR, XH_VERSION_PATCH };
-}
+inline constexpr version current_version = {XH_VERSION_MAJOR, XH_VERSION_MINOR, XH_VERSION_PATCH};
+} // namespace XH

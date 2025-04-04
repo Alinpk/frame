@@ -1,14 +1,15 @@
 #ifndef BUFFER_H
 #define BUFFER_H
 
-#include <vector>
-#include <string_view>
 #include <atomic>
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string>
+#include <string_view>
+#include <vector>
 
-class Buffer {
+class Buffer
+{
 public:
     Buffer(uint32_t initBuffSize = 1024);
     ~Buffer();
@@ -37,7 +38,7 @@ public:
 private:
     const char* BeginPtr() const;
     void MakeSpace(size_t len);
-    
+
 private:
     std::vector<char> m_buff;
     std::atomic<std::size_t> m_readPos;

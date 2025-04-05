@@ -61,9 +61,8 @@ public:
     static bool set_os_thread_priority(const os_thread_priority priority) noexcept;
 #endif
 
-private:
+// private:
     static thread_local std::optional<std::size_t> m_index;
     static thread_local std::optional<void*> m_pool;
 };
-
 } // namespace XH

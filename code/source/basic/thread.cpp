@@ -2,6 +2,8 @@
 
 
 namespace XH {
+thread_local std::optional<std::size_t> this_thread::m_index = std::nullopt;
+thread_local std::optional<void*> this_thread::m_pool = std::nullopt;
 
 std::optional<std::string> this_thread::get_os_thread_name() noexcept
 {

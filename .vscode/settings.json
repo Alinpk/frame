@@ -75,7 +75,8 @@
         "csignal": "cpp",
         "source_location": "cpp",
         "ranges": "cpp",
-        "span": "cpp"
+        "span": "cpp",
+        "version": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

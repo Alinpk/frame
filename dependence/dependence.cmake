@@ -5,8 +5,8 @@ function(git_download url dir)
     endif()
 endfunction()
 
-list(APPEND URL "https://github.com/google/googletest.git" "https://github.com/fmtlib/fmt.git")
-list(APPEND DIR googletest fmt)
+list(APPEND URL "https://github.com/google/googletest.git" "https://github.com/fmtlib/fmt.git" "https://github.com/libevent/libevent.git")
+list(APPEND DIR googletest fmt libevent)
 
 set(DEPEND_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dependence")
 

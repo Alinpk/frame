@@ -23,7 +23,7 @@ include(${PROJECT_SOURCE_DIR}/cmake/target.cmake)
 # include(${PROJECT_SOURCE_DIR}/cmake/cmake/FindMySQL.cmake)
 include(${PROJECT_SOURCE_DIR}/dependence/dependence.cmake)
 
-# find_package(MySQL MODULE REQUIRED)
+# package(MySQL MODULE REQUIRED)
 
 add_subdirectory(code)
 enable_testing()

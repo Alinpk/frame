@@ -1,5 +1,5 @@
 #include "basic/thread.h"
-
+#include <string>
 
 namespace XH {
 thread_local std::optional<std::size_t> this_thread::m_index = std::nullopt;
@@ -44,7 +44,7 @@ bool this_thread::set_os_thread_name(const std::string& name) noexcept
     return SUCCEEDED(hr);
 #elif defined(__linux__)
     // On Linux this is straightforward.
-    return pthread_setname_np(pthread_self(), name.data()) == 0;
+    return pthread_setname_np(pthread_self(), name.c_str()) == 0;
 #elif defined(__APPLE__)
     // On macOS, unlike Linux, a thread can only set a name for itself, so the signature is different.
     return pthread_setname_np(name.data()) == 0;

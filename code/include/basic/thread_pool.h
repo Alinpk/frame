@@ -39,7 +39,6 @@ enum class topt_t : opt_t
     pause = 1 << 0,
     priority = 1 << 1,
     deadlock_detect = 1 << 2,
-    job = 1 << 3,
 };
 
 constexpr opt_t operator&(const topt_t lhs, const topt_t rhs) noexcept
@@ -53,29 +52,15 @@ constexpr topt_t operator|(const topt_t lhs, const topt_t rhs) noexcept
 }
 
 #ifdef __cpp_lib_jthread
-using stop_token_t = std::stop_token;
+    #define THREAD_POOL_WORKER_TOKEN const std::stop_token &stop_token,
+    #define THREAD_POOL_WAIT_TOKEN stop_token,
+    #define THREAD_POOL_OR_STOP_CONDITION stop_token.stop_requested() ||
+    #define THREAD_POOL_STOP_CONDITION stop_token.stop_requested()
 #else
-struct stop_token_t
-{
-    std::atomic<bool> m_running = false;
-
-    explicit stop_token_t(bool running) : m_running(running) {}
-
-    bool stop_requested() const noexcept
-    {
-        return m_running.load() == false;
-    }
-
-    void request_stop() noexcept
-    {
-        m_running.store(false);
-    }
-
-    void reset() noexcept
-    {
-        m_running.store(true);
-    }
-};
+    #define THREAD_POOL_WORKER_TOKEN
+    #define THREAD_POOL_WAIT_TOKEN
+    #define THREAD_POOL_OR_STOP_CONDITION !m_workers_running ||
+    #define THREAD_POOL_STOP_CONDITION !m_workers_running
 #endif
 
 template <topt_t options = topt_t::none>
@@ -84,14 +69,14 @@ class thread_pool
 public:
     thread_pool() : thread_pool(0, [] {}) {}
 
-    explicit thread_pool(const std::size_t num_threads) : thread_pool(num_threads, [] {}, [] {}) {}
+    explicit thread_pool(const std::size_t num_threads) : thread_pool(num_threads, [] {}) {}
 
 #define THREAD_POOL_INIT_FUNC_CONCEPT(F) typename F, typename = std::enable_if_t<std::is_invocable_v<F> || std::is_invocable_v<F, std::size_t> >
 
     template <THREAD_POOL_INIT_FUNC_CONCEPT(F)>
-    thread_pool(const std::size_t num_threads, F&& init_func, task_t&& task_func)
+    thread_pool(const std::size_t num_threads, F&& init_func)
     {
-        create_threads(num_threads, std::forward<F>(init_func), std::forward<task_t>(task_func));
+        create_threads(num_threads, std::forward<F>(init_func));
     }
 
     thread_pool(const thread_pool&) = delete;
@@ -105,9 +90,12 @@ public:
         try
         {
 #endif
-            wait();
+            // wait();
+            m_tasks_available_cv.notify_all();
 #ifndef __cpp_lib_jthread
             destroy_threads();
+#else
+        m_threads.reset();
 #endif
 #ifdef __cpp_exceptions
         }
@@ -123,12 +111,12 @@ public:
      */
     void destroy_threads()
     {
+        m_workers_running = false;
         {
-            const std::scoped_lock tasks_lock(tasks_mutex);
-            m_stoken.request_stop();
+            const std::scoped_lock tasks_lock(m_tasks_mutex);
         }
         m_tasks_available_cv.notify_all();
-        for (std::size_t i = 0; i < thread_count; ++i)
+        for (std::size_t i = 0; i < m_threads_count; ++i)
             m_threads[i].join();
     }
 #endif
@@ -171,9 +159,16 @@ public:
         }
     }
 
+    void submit_task(task_t&& task)
+    {
+        std::unique_lock tasks_lock(m_tasks_mutex);
+        m_tasks.push(std::move(task));
+        m_tasks_available_cv.notify_one();
+    }
+
 private:
     template <typename F>
-    void create_threads(const std::size_t num_threads, F&& init, task_t&& task_func)
+    void create_threads(const std::size_t num_threads, F&& init)
     {
         if constexpr (std::is_invocable_v<F, std::size_t>)
         {
@@ -186,7 +181,6 @@ private:
                 init();
             };
         }
-        m_task_func = std::forward<task_t>(task_func);
         m_threads_count = determine_num_threads(num_threads);
         m_threads = std::make_unique<thread_t[]>(m_threads_count);
 
@@ -194,21 +188,18 @@ private:
             std::unique_lock lock(m_tasks_mutex);
             m_tasks_running = m_threads_count;
 #ifndef __cpp_lib_jthread
-            stoken.reset()
+            m_workers_running = true;
 #endif
         }
-
         for (std::size_t i = 0; i < m_threads_count; ++i)
         {
             m_threads[i] = thread_t(
                 [this, i]
 #ifdef __cpp_lib_jthread
-                (const std::stop_token& stoken)
-#else
-                ()
+                (const std::stop_token& stop_token)
 #endif
                 {
-                    worker(stoken, i);
+                    worker(THREAD_POOL_WAIT_TOKEN i);
                 });
         }
     }
@@ -237,70 +228,62 @@ private:
         return task;
     }
 
-    void worker(stop_token_t stoken, const std::size_t idx)
+    void worker(THREAD_POOL_WORKER_TOKEN const std::size_t idx)
     {
         this_thread::m_index = idx;
         this_thread::m_pool = this;
         m_init_func(idx);
-        if constexpr (worker_enabled)
+
+        while (true)
         {
-            m_task_func();
+            std::unique_lock tasks_lock(m_tasks_mutex);
             --m_tasks_running;
-        }
-        else
-        {
-            while (true)
+            bool paused;
+            if constexpr (pause_enabled)
+                paused = m_paused;
+            else
+                paused = false;
+
+            if (m_waiting && (m_tasks_running == 0) && (paused || m_tasks.empty()))
             {
-                std::unique_lock tasks_lock(m_tasks_mutex);
-                --m_tasks_running;
-
-                bool paused;
-                if constexpr (pause_enabled)
-                    paused = m_paused;
-                else
-                    paused = false;
-
-                if (m_waiting && (m_tasks_running == 0) && (paused || m_tasks.empty()))
+                m_tasks_done_cv.notify_all();
+            }
+            m_tasks_available_cv.wait(tasks_lock, THREAD_POOL_WAIT_TOKEN
+                [THREAD_POOL_WAIT_TOKEN this, paused]
                 {
-                    m_tasks_done_cv.notify_all();
-                }
+                    return THREAD_POOL_OR_STOP_CONDITION !(paused || m_tasks.empty());
+                });
 
-                m_tasks_available_cv.wait(tasks_lock,
-                    [this, &stoken, paused]
-                    {
-                        return stoken.stop_requested() || !(paused || m_tasks.empty());
-                    });
+            if (THREAD_POOL_STOP_CONDITION)
+            {
+                break;
+            }
 
-                if (stoken.stop_requested())
-                {
-                    break;
-                }
-
-                task_t task = pop_task();
-                ++m_tasks_running;
-                tasks_lock.unlock();
+            task_t task = pop_task();
+            ++m_tasks_running;
+            tasks_lock.unlock();
 
 #ifdef __cpp_exception
-                try
-                {
-                    task();
-                }
-                catch (...)
-                {
-                    // Handle exception
-                }
-#else
+            try
+            {
                 task();
-#endif
             }
+            catch (...)
+            {
+                // Handle exception
+            }
+#else
+            task();
+#endif
         }
         m_cleanup_func(idx);
+        this_thread::m_index = std::nullopt;
+        this_thread::m_pool = std::nullopt;
     }
 
 private:
     static constexpr bool pause_enabled = !!(options & topt_t::pause);
     static constexpr bool deadlock_detect_enabled = !!(options & topt_t::deadlock_detect);
-    static constexpr bool worker_enabled = !!(options & topt_t::job);
 
     // TODO
     static constexpr bool priority_enabled = !!(options & topt_t::priority);
@@ -308,7 +291,6 @@ private:
 private:
     //@brief An initialization function that is called when a thread is created.
     function_t<void(std::size_t)> m_init_func = [](std::size_t) {};
-    task_t m_task_func = []() {};
     //@brief A function that is called when a thread is stopped.
     function_t<void(std::size_t)> m_cleanup_func = [](std::size_t) {};
 
@@ -322,12 +304,12 @@ private:
     std::conditional_t<priority_enabled, std::priority_queue<task_t>, std::queue<task_t>> m_tasks = {};
 
     std::condition_variable m_tasks_done_cv;
-    std::condition_variable m_tasks_available_cv;
+    std::condition_variable_any m_tasks_available_cv;
 
 #ifndef __cpp_lib_jthread
-    stop_token_t stoken(false);
+    bool m_workers_running = false;
 #endif
 };
 
-using thread_job_pool_t = thread_pool<topt_t::job>;
+using base_thread_pool_t = thread_pool<topt_t::none>;
 } // namespace XH

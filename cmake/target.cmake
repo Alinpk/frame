@@ -7,10 +7,12 @@ add_library(${LIB_NAME} STATIC)
 target_include_directories(${LIB_NAME}
     PUBLIC
         ${PROJECT_SOURCE_DIR}/code/include
+        ${LIBEVENT_INCLUDE_DIRS}
 )
 include(FindPkgConfig)
 
 target_link_libraries(${LIB_NAME} PRIVATE fmt::fmt)
+target_link_libraries(${LIB_NAME} PRIVATE event)
 
 # file(GLOB_RECURSE HEADER_FILES ${PROJECT_SOURCE_DIR}/include/*.h)
 # set_target_properties(${LIB_NAME} PROPERTIES PUBLIC_HEADER ${HEADER_FILES})
